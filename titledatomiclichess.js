@@ -106,29 +106,51 @@ async function detectContext() {
 
   // ---- rendering ----
   function apply() {
+      const SHORTS = new Set(Object.values(TITLES).map(x => x.short));
+
+// Lichess TV channel list: plain-text champion rows
+document.querySelectorAll('.tv-channel .champion').forEach(ch => {
+  const node = [...ch.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
+  if (!node) return;
+  const tokens = node.textContent.trim().split(/\s+/);   // [title?] name
+  const name = tokens[tokens.length - 1];
+  const t = map[name.toLowerCase()];
+  if (!t) return;
+  const hasAtomic = SHORTS.has(tokens[0]);
+  if (hasAtomic && tokens[0] === t.short) return;        // already correct
+  const hasReal = tokens.length > 1 && !hasAtomic;
+  const atomicRow = ch.closest('.tv-channel')?.classList.contains('atomic');
+  if (hasReal && !atomicRow) return;                     // standard title stays outside the Atomic row
+  node.textContent = `${t.short} ${name}`;
+  ch.title = `${t.full} (unofficial)`;
+});
   document.querySelectorAll('.user-link').forEach(el => {
-  if (el.closest('#dasher_app')) return; // account menu "Profile" link, not a player name
-  if (el.querySelector(':scope > .utitle.at-title')) return;
-    const m = (el.getAttribute('href') || el.dataset.href || '').match(/\/@\/([^/?#]+)/);
-    const t = m && map[m[1].toLowerCase()];
-    if (!t) return;
-    const real = el.querySelector(':scope > .utitle');
-    if (real) {
-      if (!ctx.atomic) return; // standard-titled: keep the real title outside atomic pages
-      const hadNbsp = real.textContent.includes('\u00a0');
-      real.classList.add('at-title');
-      real.textContent = t.short + (hadNbsp ? '\u00a0' : '');
-      real.title = `${t.full} (unofficial)`;
-      real.removeAttribute('data-bot');
-      return;
-    }
-    const s = document.createElement('span'); // no standard title: show everywhere
-    s.className = 'utitle at-title';
-    s.title = `${t.full} (unofficial)`;
-    s.textContent = t.short + '\u00a0';
-    const line = el.querySelector(':scope > .line');
-    line ? line.after(s) : el.prepend(s);
-  });
+  if (el.closest('#dasher_app')) return;
+  const box = el.querySelector(':scope > .name') || el;   // arena standings wrap content in span.name
+  if (box.querySelector(':scope > .utitle.at-title')) return;
+  const m = (el.getAttribute('href') || el.dataset.href || '').match(/\/@\/([^/?#]+)/);
+  const t = m && map[m[1].toLowerCase()];
+  if (!t) return;
+  const markLong = () => { if (box !== el && (t.short + m[1]).length > 15) el.classList.add('long'); };
+  const real = box.querySelector(':scope > .utitle');
+  if (real) {
+    if (!ctx.atomic) return;
+    const hadNbsp = real.textContent.includes('\u00a0');
+    real.classList.add('at-title');
+    real.textContent = t.short + (hadNbsp ? '\u00a0' : '');
+    real.title = `${t.full} (unofficial)`;
+    real.removeAttribute('data-bot');
+    markLong();
+    return;
+  }
+  const s = document.createElement('span');
+  s.className = 'utitle at-title';
+  s.title = `${t.full} (unofficial)`;
+  s.textContent = t.short + '\u00a0';
+  const line = box.querySelector(':scope > .line');
+  line ? line.after(s) : box.prepend(s);
+  markLong();
+});
 }
 
   // ---- list refresh (works only when you're a team member) ----
