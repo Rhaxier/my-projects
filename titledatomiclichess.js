@@ -7,22 +7,24 @@
   const TEAM = 'the-atomic-titled-players-team';
   const KEY = 'at-titles-v2', TTL = 3600e3, MIN_ENTRIES = 30;
 
+  // ---- hover card layout fix (name + flag stay on one row; country shown as tooltip) ----
   const style = document.createElement('style');
-style.textContent = `
-  #powerTip .upt__info__top {
-    display: flex; align-items: center; justify-content: space-between; gap: .5em;
-  }
-  #powerTip .upt__info__top .user-link { flex: 0 1 auto; white-space: nowrap; overflow: visible; }
-  #powerTip .upt__info__top__flag { flex: none; font-size: 0; }
-  #powerTip .upt__info__top__flag .flag { font-size: 1rem; }
-`;
-document.head.appendChild(style);
+  style.textContent = `
+    #powerTip .upt__info__top {
+      display: flex; align-items: center; justify-content: space-between; gap: .5em;
+    }
+    #powerTip .upt__info__top .user-link { flex: 0 1 auto; white-space: nowrap; overflow: visible; }
+    #powerTip .upt__info__top__flag { flex: none; font-size: 0; }
+    #powerTip .upt__info__top__flag .flag { font-size: 1rem; }
+  `;
+  document.head.appendChild(style);
 
-// keep the country name available as a tooltip
-new MutationObserver(() => {
-  document.querySelectorAll('#powerTip .upt__info__top__flag:not([title])')
-    .forEach(f => { f.title = f.textContent.trim(); });
-}).observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(() => {
+    document.querySelectorAll('#powerTip .upt__info__top__flag:not([title])')
+      .forEach(f => { f.title = f.textContent.trim(); });
+  }).observe(document.body, { childList: true, subtree: true });
+
+  // ---- titles ----
   const TITLES = {
     ATCM:  { short: 'ATCM',  full: 'Atomic Candidate Master', rank: 1 },
     ATPM:  { short: 'ATPM',  full: "Atomic Players' Master", rank: 2 },
@@ -77,81 +79,101 @@ new MutationObserver(() => {
 
   // ---- atomic context detection (page level) ----
   const ctx = { atomic: false };
-  async function variantIsAtomic(url) {
-  try {
-    const r = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
-    if (!r.ok) return null; // unknown, don't cache
-    const j = await r.json();
-    const v = typeof j.variant === 'string' ? j.variant : j.variant?.key;
-    return v === 'atomic';
-  } catch { return null; }
-}
 
-async function detectContext() {
-  const p = location.pathname;
-  const cacheKey = 'at-ctx:' + p;
-  try { const c = sessionStorage.getItem(cacheKey); if (c !== null) return c === '1'; } catch {}
-  let atomic = false, m;
-  if ((m = p.match(/^\/tournament\/(\w{8})/))) atomic = await variantIsAtomic(`/api/tournament/${m[1]}`);
-  else if ((m = p.match(/^\/swiss\/(\w{8})/))) atomic = await variantIsAtomic(`/api/swiss/${m[1]}`);
-  else if ((m = p.match(/^\/(\w{8})(?:\w{4})?(?:\/(?:white|black))?\/?$/))) {
-    const meta = document.querySelector('.game__meta')?.textContent || '';
-    atomic = /\bAtomic\b/.test(meta)
-      ? true
-      : await variantIsAtomic(`/game/export/${m[1]}?moves=false&tags=false&clocks=false&evals=false&opening=false`);
+  async function variantIsAtomic(url) {
+    try {
+      const r = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+      if (!r.ok) return null; // unknown, don't cache
+      const j = await r.json();
+      const v = typeof j.variant === 'string' ? j.variant : j.variant?.key;
+      return v === 'atomic';
+    } catch { return null; }
   }
-  if (atomic !== null) { try { sessionStorage.setItem(cacheKey, atomic ? '1' : '0'); } catch {} }
-  return atomic === true;
-}
+
+  async function detectContext() {
+    const p = location.pathname;
+    const cacheKey = 'at-ctx:' + p;
+    try { const c = sessionStorage.getItem(cacheKey); if (c !== null) return c === '1'; } catch {}
+    let atomic = false, m;
+    if ((m = p.match(/^\/tournament\/(\w{8})/))) atomic = await variantIsAtomic(`/api/tournament/${m[1]}`);
+    else if ((m = p.match(/^\/swiss\/(\w{8})/))) atomic = await variantIsAtomic(`/api/swiss/${m[1]}`);
+    else if ((m = p.match(/^\/(\w{8})(?:\w{4})?(?:\/(?:white|black))?\/?$/))) {
+      const meta = document.querySelector('.game__meta')?.textContent || '';
+      atomic = /\bAtomic\b/.test(meta)
+        ? true
+        : await variantIsAtomic(`/game/export/${m[1]}?moves=false&tags=false&clocks=false&evals=false&opening=false`);
+    }
+    if (atomic !== null) { try { sessionStorage.setItem(cacheKey, atomic ? '1' : '0'); } catch {} }
+    return atomic === true;
+  }
 
   // ---- rendering ----
   function apply() {
-      const SHORTS = new Set(Object.values(TITLES).map(x => x.short));
+    const SHORTS = new Set(Object.values(TITLES).map(x => x.short));
 
-// Lichess TV channel list: plain-text champion rows
-document.querySelectorAll('.tv-channel .champion').forEach(ch => {
-  const node = [...ch.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
-  if (!node) return;
-  const tokens = node.textContent.trim().split(/\s+/);   // [title?] name
-  const name = tokens[tokens.length - 1];
-  const t = map[name.toLowerCase()];
-  if (!t) return;
-  const hasAtomic = SHORTS.has(tokens[0]);
-  if (hasAtomic && tokens[0] === t.short) return;        // already correct
-  const hasReal = tokens.length > 1 && !hasAtomic;
-  const atomicRow = ch.closest('.tv-channel')?.classList.contains('atomic');
-  if (hasReal && !atomicRow) return;                     // standard title stays outside the Atomic row
-  node.textContent = `${t.short} ${name}`;
-  ch.title = `${t.full} (unofficial)`;
-});
-  document.querySelectorAll('.user-link').forEach(el => {
-  if (el.closest('#dasher_app')) return;
-  const box = el.querySelector(':scope > .name') || el;   // arena standings wrap content in span.name
-  if (box.querySelector(':scope > .utitle.at-title')) return;
-  const m = (el.getAttribute('href') || el.dataset.href || '').match(/\/@\/([^/?#]+)/);
-  const t = m && map[m[1].toLowerCase()];
-  if (!t) return;
-  const markLong = () => { if (box !== el && (t.short + m[1]).length > 15) el.classList.add('long'); };
-  const real = box.querySelector(':scope > .utitle');
-  if (real) {
-    if (!ctx.atomic) return;
-    const hadNbsp = real.textContent.includes('\u00a0');
-    real.classList.add('at-title');
-    real.textContent = t.short + (hadNbsp ? '\u00a0' : '');
-    real.title = `${t.full} (unofficial)`;
-    real.removeAttribute('data-bot');
-    markLong();
-    return;
+    // Lichess TV channel list: plain-text champion rows
+    document.querySelectorAll('.tv-channel .champion').forEach(ch => {
+      const node = [...ch.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
+      if (!node) return;
+      const tokens = node.textContent.trim().split(/\s+/);   // [title?] name
+      const name = tokens[tokens.length - 1];
+      const t = map[name.toLowerCase()];
+      if (!t) return;
+      const hasAtomic = SHORTS.has(tokens[0]);
+      if (hasAtomic && tokens[0] === t.short) return;        // already correct
+      const hasReal = tokens.length > 1 && !hasAtomic;
+      const atomicRow = ch.closest('.tv-channel')?.classList.contains('atomic');
+      if (hasReal && !atomicRow) return;                     // standard title stays outside the Atomic row
+      node.textContent = `${t.short} ${name}`;
+      ch.title = `${t.full} (unofficial)`;
+    });
+
+    // Player links (chat, team pages, game pages, tournaments, ...)
+    document.querySelectorAll('.user-link').forEach(el => {
+      if (el.closest('#dasher_app')) return;                 // account menu "Profile" link
+
+      // In-game arena sidebar: the title is plain text, and Lichess's ".name span"
+      // CSS (1.5em wide) would squash any span we add, so edit the text instead.
+      if (el.parentElement?.matches('td.name') && el.previousElementSibling?.matches('span.rank')) {
+        const node = [...el.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
+        if (!node) return;
+        const tokens = node.textContent.trim().split(/\s+/);   // [title?] name
+        const name = tokens[tokens.length - 1];
+        const t = map[name.toLowerCase()];
+        if (!t) return;
+        if (tokens.length > 1 && tokens[0] === t.short) return;   // already ours
+        const hasReal = tokens.length > 1 && !SHORTS.has(tokens[0]);
+        if (hasReal && !ctx.atomic) return;                       // standard title stays outside atomic pages
+        node.textContent = `${t.short} ${name}`;
+        return;
+      }
+
+      const box = el.querySelector(':scope > .name') || el;   // arena page standings wrap content in span.name
+      if (box.querySelector(':scope > .utitle.at-title')) return;
+      const m = (el.getAttribute('href') || el.dataset.href || '').match(/\/@\/([^/?#]+)/);
+      const t = m && map[m[1].toLowerCase()];
+      if (!t) return;
+      const markLong = () => { if (box !== el && (t.short + m[1]).length > 15) el.classList.add('long'); };
+      const real = box.querySelector(':scope > .utitle');
+      if (real) {
+        if (!ctx.atomic) return;                              // standard title stays outside atomic pages
+        const hadNbsp = real.textContent.includes('\u00a0');
+        real.classList.add('at-title');
+        real.textContent = t.short + (hadNbsp ? '\u00a0' : '');
+        real.title = `${t.full} (unofficial)`;
+        real.removeAttribute('data-bot');
+        markLong();
+        return;
+      }
+      const s = document.createElement('span');
+      s.className = 'utitle at-title';
+      s.title = `${t.full} (unofficial)`;
+      s.textContent = t.short + '\u00a0';
+      const line = box.querySelector(':scope > .line');
+      line ? line.after(s) : box.prepend(s);
+      markLong();
+    });
   }
-  const s = document.createElement('span');
-  s.className = 'utitle at-title';
-  s.title = `${t.full} (unofficial)`;
-  s.textContent = t.short + '\u00a0';
-  const line = box.querySelector(':scope > .line');
-  line ? line.after(s) : box.prepend(s);
-  markLong();
-});
-}
 
   // ---- list refresh (works only when you're a team member) ----
   async function refreshList() {
